@@ -7,6 +7,13 @@ const {
   ESTADOS_RUTA,
   ESTADOS_CHOFER,
 } = require('../utils/rutaEstado');
+const { listarRutasHistorial } = require('../utils/rutaHistorial');
+const { listarRutasAdicionales } = require('../utils/rutaAdicional');
+const { aplicarFiltroAdicional, tieneColumnaAdicional } = require('../utils/rutaAdicionalSchema');
+const {
+  aplicarFiltroVisibleListaEnQuery,
+  tieneColumnaVisibleLista,
+} = require('../utils/rutaVisibleListaSchema');
 
 const router = express.Router();
 
@@ -78,12 +85,16 @@ router.get('/', async (req, res) => {
   const id = choferId(req);
   const limit = Math.min(Number(req.query.limit) || 200, 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const columnaExiste = await tieneColumnaAdicional();
+  const colVisible = await tieneColumnaVisibleLista();
 
   let q = supabaseAdmin
     .from('rutas')
     .select('*')
-    .eq('chofer_id', id)
-    .order('id', { ascending: false });
+    .eq('chofer_id', id);
+  q = aplicarFiltroAdicional(q, false, columnaExiste);
+  q = aplicarFiltroVisibleListaEnQuery(q, colVisible);
+  q = q.order('id', { ascending: false });
 
   if (req.query.estado != null && String(req.query.estado).trim() !== '') {
     const canon = normalizeEstado(req.query.estado);
@@ -112,6 +123,28 @@ router.get('/', async (req, res) => {
     limit,
     offset,
   });
+});
+
+router.get('/historial', async (req, res) => {
+  const id = choferId(req);
+  const limit = req.query.limit;
+  const columnaExiste = await tieneColumnaAdicional();
+  const colVisible = await tieneColumnaVisibleLista();
+  let q = supabaseAdmin.from('rutas').select('*').eq('chofer_id', id);
+  q = aplicarFiltroAdicional(q, false, columnaExiste);
+  q = aplicarFiltroVisibleListaEnQuery(q, colVisible);
+  const result = await listarRutasHistorial(q, limit);
+  return res.status(result.status).json(result.body);
+});
+
+router.get('/adicionales', async (req, res) => {
+  const id = choferId(req);
+  const limit = req.query.limit;
+  const result = await listarRutasAdicionales(
+    supabaseAdmin.from('rutas').select('*').eq('chofer_id', id),
+    limit
+  );
+  return res.status(result.status).json(result.body);
 });
 
 router.get('/:rutaId', async (req, res) => {

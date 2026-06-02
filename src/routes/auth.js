@@ -114,22 +114,39 @@ router.post('/login', async (req, res) => {
 
   const authUser = data.user;
   let perfil = null;
+  let profileError = null;
+  let perfilVinculado = false;
 
-  const profileClient = supabaseAdmin || createUserScopedClient(data.session.access_token);
-
-  const { data: profileData, error: profileError } = await profileClient
-    .from('usuarios')
-    .select('id, nombre, email, telefono, rol_id')
-    .eq('id', authUser.id)
-    .maybeSingle();
-
-  if (profileData) {
+  if (supabaseAdmin) {
+    const { resolveUsuarioPerfil } = require('../utils/resolveUsuarioPerfil');
+    const resolved = await resolveUsuarioPerfil(authUser.id, authUser.email);
+    perfil = resolved.perfil;
+    profileError = resolved.error;
+    perfilVinculado = Boolean(resolved.vinculado);
+  } else {
+    const profileClient = createUserScopedClient(data.session.access_token);
+    const { data: profileData, error: err } = await profileClient
+      .from('usuarios')
+      .select('id, nombre, email, telefono, rol_id')
+      .eq('id', authUser.id)
+      .maybeSingle();
     perfil = profileData;
+    profileError = err;
+    if (profileData) {
+      try {
+        const { warmProfileCache } = require('../utils/verifyAccessToken');
+        warmProfileCache(profileData);
+      } catch {
+        /* noop */
+      }
+    }
   }
 
   return res.status(200).json({
     ok: true,
-    mensaje: 'Login correcto',
+    mensaje: perfilVinculado
+      ? 'Login correcto. Perfil vinculado al usuario de Auth.'
+      : 'Login correcto',
     access_token: data.session.access_token,
     refresh_token: data.session.refresh_token,
     expires_in: data.session.expires_in,
@@ -140,6 +157,245 @@ router.post('/login', async (req, res) => {
     },
     perfil,
     ...(profileError && { perfil_error: profileError.message }),
+  });
+});
+
+function passwordResetRedirectUrl() {
+  return (
+    process.env.PASSWORD_RESET_REDIRECT_URL ||
+    process.env.EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL ||
+    'rutaactivamobile://nueva-contrasena'
+  );
+}
+
+/** Respuesta amigable cuando Supabase bloquea envíos de correo (pruebas repetidas). */
+function respuestaErrorEnvioCorreoAuth(error, contexto) {
+  const msg = (error?.message || '').toLowerCase();
+  const esRateLimit =
+    msg.includes('rate limit') ||
+    msg.includes('too many requests') ||
+    error?.status === 429;
+
+  if (esRateLimit) {
+    return {
+      status: 429,
+      body: {
+        ok: false,
+        mensaje:
+          'Supabase limitó los correos por demasiados intentos. Espera unos 60 minutos y vuelve a intentar, o cambia la contraseña desde el panel de Supabase (Authentication → Users).',
+        codigo: 'email_rate_limit',
+        reintentar_en_minutos: 60,
+      },
+    };
+  }
+
+  return {
+    status: 400,
+    body: {
+      ok: false,
+      mensaje: contexto,
+      detalle: error?.message,
+    },
+  };
+}
+
+router.post('/recuperar-contrasena', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+
+  if (!email) {
+    return res.status(400).json({ ok: false, mensaje: 'email es obligatorio' });
+  }
+
+  const redirectTo = passwordResetRedirectUrl();
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+  if (error) {
+    const r = respuestaErrorEnvioCorreoAuth(error, 'No se pudo enviar el correo de recuperación');
+    return res.status(r.status).json(r.body);
+  }
+
+  return res.status(200).json({
+    ok: true,
+    mensaje:
+      'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña. Revisa también spam.',
+    redirect_configurado: redirectTo,
+  });
+});
+
+router.post('/nueva-contrasena', async (req, res) => {
+  let accessToken =
+    typeof req.body?.access_token === 'string' ? req.body.access_token.trim() : '';
+  let refreshToken =
+    typeof req.body?.refresh_token === 'string' ? req.body.refresh_token.trim() : '';
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+  const tokenHash = typeof req.body?.token_hash === 'string' ? req.body.token_hash.trim() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!password || password.length < 6) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'password es obligatorio y debe tener al menos 6 caracteres',
+    });
+  }
+
+  if (code && !accessToken) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error || !data?.session) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: 'Enlace inválido o expirado. Solicita un correo nuevo.',
+        detalle: error?.message,
+      });
+    }
+    accessToken = data.session.access_token;
+    refreshToken = data.session.refresh_token;
+  }
+
+  if (tokenHash && !accessToken) {
+    const { data, error } = await supabase.auth.verifyOtp({
+      type: 'recovery',
+      token_hash: tokenHash,
+    });
+    if (error || !data?.session) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: 'Enlace inválido o expirado. Solicita un correo nuevo.',
+        detalle: error?.message,
+      });
+    }
+    accessToken = data.session.access_token;
+    refreshToken = data.session.refresh_token;
+  }
+
+  if (!accessToken) {
+    return res.status(400).json({
+      ok: false,
+      mensaje:
+        'Abre el enlace del correo en este teléfono (no entres manualmente a esta pantalla). Si ya lo abriste, solicita otro enlace.',
+    });
+  }
+
+  const recoveryClient = createUserScopedClient(accessToken);
+
+  if (refreshToken) {
+    const { error: sessionErr } = await recoveryClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (sessionErr) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: 'Enlace inválido o expirado',
+        detalle: sessionErr.message,
+      });
+    }
+  }
+
+  const { error: updateErr } = await recoveryClient.auth.updateUser({ password });
+
+  if (updateErr) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'No se pudo actualizar la contraseña',
+      detalle: updateErr.message,
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    mensaje: 'Contraseña actualizada. Ya puedes iniciar sesión.',
+  });
+});
+
+/** Código de 6 dígitos por correo (sin deep link; ideal emulador Android). */
+router.post('/recuperar-contrasena-codigo', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+
+  if (!email) {
+    return res.status(400).json({ ok: false, mensaje: 'email es obligatorio' });
+  }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  });
+
+  if (error) {
+    const r = respuestaErrorEnvioCorreoAuth(error, 'No se pudo enviar el código');
+    return res.status(r.status).json(r.body);
+  }
+
+  return res.status(200).json({
+    ok: true,
+    mensaje:
+      'Si el correo está registrado, recibirás un código de 6 dígitos. Ábrelo en el PC u otro teléfono y escríbelo aquí (no hace falta abrir ningún enlace).',
+  });
+});
+
+router.post('/nueva-contrasena-codigo', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const codigo =
+    typeof req.body?.codigo === 'string'
+      ? req.body.codigo.trim().replace(/\s/g, '')
+      : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!email || !codigo) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'email y codigo son obligatorios',
+    });
+  }
+
+  if (!password || password.length < 6) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'password es obligatorio y debe tener al menos 6 caracteres',
+    });
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: codigo,
+    type: 'email',
+  });
+
+  if (error || !data?.session) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'Código incorrecto o expirado. Solicita uno nuevo.',
+      detalle: error?.message,
+    });
+  }
+
+  const recoveryClient = createUserScopedClient(data.session.access_token);
+  const { error: sessionErr } = await recoveryClient.auth.setSession({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  });
+
+  if (sessionErr) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'No se pudo validar el código',
+      detalle: sessionErr.message,
+    });
+  }
+
+  const { error: updateErr } = await recoveryClient.auth.updateUser({ password });
+
+  if (updateErr) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'No se pudo actualizar la contraseña',
+      detalle: updateErr.message,
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    mensaje: 'Contraseña actualizada. Ya puedes iniciar sesión.',
   });
 });
 

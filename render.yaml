@@ -1,0 +1,26 @@
+# Blueprint Render — https://render.com/docs/blueprint-spec
+# Si el repo raíz es la carpeta padre, en el dashboard usa "Root Directory": backend-ruta-activa-main
+
+services:
+  - type: web
+    name: rutaactiva-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PASSWORD_RESET_REDIRECT_URL
+        value: rutaactivamobile://nueva-contrasena

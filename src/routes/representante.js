@@ -1,6 +1,13 @@
 const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const requireRepresentanteBearer = require('../middleware/requireRepresentanteBearer');
+const { listarRutasAdicionales } = require('../utils/rutaAdicional');
+const { aplicarFiltroAdicional, tieneColumnaAdicional } = require('../utils/rutaAdicionalSchema');
+const {
+  aplicarFiltroVisibleListaEnQuery,
+  tieneColumnaVisibleLista,
+} = require('../utils/rutaVisibleListaSchema');
+const { listarRutasHistorial } = require('../utils/rutaHistorial');
 const { normalizeEstado } = require('../utils/rutaEstado');
 
 const router = express.Router();
@@ -129,12 +136,16 @@ router.get('/rutas', async (req, res) => {
   const repId = representanteId(req);
   const limit = Math.min(Number(req.query.limit) || 200, 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const columnaExiste = await tieneColumnaAdicional();
+  const colVisible = await tieneColumnaVisibleLista();
 
   let rutasQuery = supabaseAdmin
     .from('rutas')
     .select('*')
-    .eq('representante_id', repId)
-    .order('id', { ascending: false });
+    .eq('representante_id', repId);
+  rutasQuery = aplicarFiltroAdicional(rutasQuery, false, columnaExiste);
+  rutasQuery = aplicarFiltroVisibleListaEnQuery(rutasQuery, colVisible);
+  rutasQuery = rutasQuery.order('id', { ascending: false });
 
   if (req.query.estado != null && String(req.query.estado).trim() !== '') {
     rutasQuery = rutasQuery.eq('estado', normalizeEstado(req.query.estado));
@@ -171,6 +182,78 @@ router.get('/rutas', async (req, res) => {
     rutas: rutasConVerificacion,
     limit,
     offset,
+  });
+});
+
+router.get('/rutas/historial', async (req, res) => {
+  const repId = representanteId(req);
+  const limit = req.query.limit;
+  const columnaExiste = await tieneColumnaAdicional();
+  const colVisible = await tieneColumnaVisibleLista();
+  let q = supabaseAdmin.from('rutas').select('*').eq('representante_id', repId);
+  q = aplicarFiltroAdicional(q, false, columnaExiste);
+  q = aplicarFiltroVisibleListaEnQuery(q, colVisible);
+  const result = await listarRutasHistorial(q, limit);
+  if (!result.ok) {
+    return res.status(result.status).json(result.body);
+  }
+
+  const list = result.body.rutas || [];
+  const rutaIds = list.map((r) => r.id);
+  const { rows: verificaciones, error: verifError } = await fetchVerificacionesByRutaIds(rutaIds);
+  if (verifError) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'No se pudieron leer verificaciones del historial',
+      detalle: verifError.message,
+    });
+  }
+
+  const verifByRuta = pickLatestByRuta(verificaciones);
+  const rutasConVerificacion = list.map((ruta) => ({
+    ...ruta,
+    verificacion: verifByRuta.get(ruta.id) || null,
+  }));
+
+  return res.status(200).json({
+    ok: true,
+    rutas: rutasConVerificacion,
+    total: rutasConVerificacion.length,
+  });
+});
+
+router.get('/rutas/adicionales', async (req, res) => {
+  const repId = representanteId(req);
+  const limit = req.query.limit;
+  const colVisible = await tieneColumnaVisibleLista();
+  let qAd = supabaseAdmin.from('rutas').select('*').eq('representante_id', repId);
+  qAd = aplicarFiltroVisibleListaEnQuery(qAd, colVisible);
+  const result = await listarRutasAdicionales(qAd, limit);
+  if (!result.ok) {
+    return res.status(result.status).json(result.body);
+  }
+
+  const list = result.body.rutas || [];
+  const rutaIds = list.map((r) => r.id);
+  const { rows: verificaciones, error: verifError } = await fetchVerificacionesByRutaIds(rutaIds);
+  if (verifError) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'No se pudieron leer verificaciones de rutas adicionales',
+      detalle: verifError.message,
+    });
+  }
+
+  const verifByRuta = pickLatestByRuta(verificaciones);
+  const rutasConVerificacion = list.map((ruta) => ({
+    ...ruta,
+    verificacion: verifByRuta.get(ruta.id) || null,
+  }));
+
+  return res.status(200).json({
+    ok: true,
+    rutas: rutasConVerificacion,
+    total: rutasConVerificacion.length,
   });
 });
 

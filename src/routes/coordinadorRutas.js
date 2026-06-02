@@ -1,10 +1,25 @@
 const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const { normalizeEstado } = require('../utils/rutaEstado');
+const { listarRutasHistorial } = require('../utils/rutaHistorial');
+const { parseAdicional } = require('../utils/rutaAdicional');
+const { prepararPayloadRuta } = require('../utils/rutaAdicionalSchema');
+const {
+  aplicarFiltroVisibleLista,
+  prepararPayloadRutaVisible,
+  tieneColumnaVisibleLista,
+} = require('../utils/rutaVisibleListaSchema');
 
 const router = express.Router();
 
-const PATCHABLE = new Set(['comunidad_nombre', 'chofer_id', 'representante_id', 'estado', 'finalizado_en']);
+const PATCHABLE = new Set([
+  'comunidad_nombre',
+  'chofer_id',
+  'representante_id',
+  'estado',
+  'finalizado_en',
+  'adicional',
+]);
 
 const choferRoleId = Number(process.env.ROLE_CHOFER_ID || process.env.ROL_CHOFER_ID || 3);
 const representanteRoleId = Number(
@@ -30,14 +45,31 @@ function coordinadorId(req) {
   return req.coordinadorActor.id;
 }
 
-async function fetchRutaIfOwned(rutaId, coordId) {
+async function fetchRutaIfAccessible(rutaId, coordId) {
   const { data, error } = await supabaseAdmin
     .from('rutas')
     .select('*')
     .eq('id', rutaId)
-    .eq('coordinador_id', coordId)
     .maybeSingle();
-  return { ruta: data, error };
+
+  if (error) {
+    return { ruta: null, error };
+  }
+  if (!data) {
+    return { ruta: null, error: null };
+  }
+  if (data.coordinador_id != null && data.coordinador_id !== coordId) {
+    return { ruta: null, error: null };
+  }
+  return { ruta: data, error: null };
+}
+
+function rutasCoordinadorQuery(coordId, columnaVisibleLista) {
+  let q = supabaseAdmin
+    .from('rutas')
+    .select('*')
+    .or(`coordinador_id.eq.${coordId},coordinador_id.is.null`);
+  return aplicarFiltroVisibleLista(q, columnaVisibleLista);
 }
 
 async function assertChoferRol(choferId) {
@@ -91,12 +123,11 @@ async function assertRepresentanteRol(representanteId) {
 
 router.get('/reportes', async (req, res) => {
   const coordId = coordinadorId(req);
+  const colVisible = await tieneColumnaVisibleLista();
 
-  const { data: rutas, error } = await supabaseAdmin
-    .from('rutas')
-    .select('*')
-    .eq('coordinador_id', coordId)
-    .order('id', { ascending: false });
+  const { data: rutas, error } = await rutasCoordinadorQuery(coordId, colVisible).order('id', {
+    ascending: false,
+  });
 
   if (error) {
     return res.status(400).json({
@@ -135,12 +166,9 @@ router.get('/', async (req, res) => {
   const coordId = coordinadorId(req);
   const limit = Math.min(Number(req.query.limit) || 200, 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const colVisible = await tieneColumnaVisibleLista();
 
-  let q = supabaseAdmin
-    .from('rutas')
-    .select('*')
-    .eq('coordinador_id', coordId)
-    .order('id', { ascending: false });
+  let q = rutasCoordinadorQuery(coordId, colVisible).order('id', { ascending: false });
 
   if (req.query.estado != null && String(req.query.estado).trim() !== '') {
     q = q.eq('estado', normalizeEstado(req.query.estado));
@@ -162,6 +190,14 @@ router.get('/', async (req, res) => {
     limit,
     offset,
   });
+});
+
+router.get('/historial', async (req, res) => {
+  const coordId = coordinadorId(req);
+  const limit = req.query.limit;
+  const colVisible = await tieneColumnaVisibleLista();
+  const result = await listarRutasHistorial(rutasCoordinadorQuery(coordId, colVisible), limit);
+  return res.status(result.status).json(result.body);
 });
 
 router.post('/', async (req, res) => {
@@ -214,15 +250,55 @@ router.post('/', async (req, res) => {
 
   const estadoInicial = normalizeEstado(req.body.estado);
 
-  const insertPayload = {
-    comunidad_nombre: comunidad_nombre.trim(),
+  const nombre = comunidad_nombre.trim();
+  const patchBase = await prepararPayloadRuta({
+    comunidad_nombre: nombre,
     chofer_id: choferUuid,
     representante_id: representanteUuid,
     coordinador_id: coordId,
     estado: estadoInicial,
-  };
+    adicional: parseAdicional(req.body.adicional, false),
+  });
+  const patchVisible = await prepararPayloadRutaVisible(patchBase, true);
 
-  const { data, error } = await supabaseAdmin.from('rutas').insert(insertPayload).select('*').maybeSingle();
+  const colVisible = await tieneColumnaVisibleLista();
+  if (colVisible) {
+    const { data: oculta } = await supabaseAdmin
+      .from('rutas')
+      .select('id')
+      .ilike('comunidad_nombre', nombre)
+      .eq('visible_lista', false)
+      .maybeSingle();
+
+    if (oculta?.id) {
+      const { data: actualizada, error: updErr } = await supabaseAdmin
+        .from('rutas')
+        .update(patchVisible)
+        .eq('id', oculta.id)
+        .select('*')
+        .maybeSingle();
+
+      if (updErr) {
+        return res.status(400).json({
+          ok: false,
+          mensaje: 'No se pudo activar la ruta en la lista',
+          detalle: updErr.message,
+        });
+      }
+
+      return res.status(201).json({
+        ok: true,
+        mensaje: 'Ruta agregada a la lista',
+        ruta: actualizada,
+      });
+    }
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('rutas')
+    .insert(patchVisible)
+    .select('*')
+    .maybeSingle();
 
   if (error) {
     return res.status(400).json({
@@ -245,7 +321,7 @@ router.get('/:rutaId', async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: 'rutaId debe ser un entero positivo' });
   }
 
-  const { ruta, error } = await fetchRutaIfOwned(rutaId, coordinadorId(req));
+  const { ruta, error } = await fetchRutaIfAccessible(rutaId, coordinadorId(req));
   if (error) {
     return res.status(400).json({
       ok: false,
@@ -267,7 +343,7 @@ router.patch('/:rutaId', async (req, res) => {
   }
 
   const coordId = coordinadorId(req);
-  const { ruta: existing, error: readErr } = await fetchRutaIfOwned(rutaId, coordId);
+  const { ruta: existing, error: readErr } = await fetchRutaIfAccessible(rutaId, coordId);
   if (readErr) {
     return res.status(400).json({
       ok: false,
@@ -338,15 +414,29 @@ router.patch('/:rutaId', async (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(patch, 'estado')) {
     patch.estado = normalizeEstado(patch.estado);
+    if (patch.estado === 'Completada' && normalizeEstado(existing.estado) !== 'Completada') {
+      patch.finalizado_en = new Date().toISOString();
+    }
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('rutas')
-    .update(patch)
-    .eq('id', rutaId)
-    .eq('coordinador_id', coordId)
-    .select('*')
-    .maybeSingle();
+  if (Object.prototype.hasOwnProperty.call(patch, 'adicional')) {
+    patch.adicional = parseAdicional(patch.adicional, false);
+  }
+
+  if (existing.coordinador_id == null && !Object.prototype.hasOwnProperty.call(patch, 'coordinador_id')) {
+    patch.coordinador_id = coordId;
+  }
+
+  const patchFinal = await prepararPayloadRuta(patch);
+
+  let updateQ = supabaseAdmin.from('rutas').update(patchFinal).eq('id', rutaId);
+  if (existing.coordinador_id == null) {
+    updateQ = updateQ.is('coordinador_id', null);
+  } else {
+    updateQ = updateQ.eq('coordinador_id', coordId);
+  }
+
+  const { data, error } = await updateQ.select('*').maybeSingle();
 
   if (error) {
     return res.status(400).json({
@@ -370,12 +460,26 @@ router.delete('/:rutaId', async (req, res) => {
   }
 
   const coordId = coordinadorId(req);
-  const { data, error } = await supabaseAdmin
-    .from('rutas')
-    .delete()
-    .eq('id', rutaId)
-    .eq('coordinador_id', coordId)
-    .select('id');
+  const { ruta: existing, error: readErr } = await fetchRutaIfAccessible(rutaId, coordId);
+  if (readErr) {
+    return res.status(400).json({
+      ok: false,
+      mensaje: 'No se pudo leer la ruta',
+      detalle: readErr.message,
+    });
+  }
+  if (!existing) {
+    return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada o no es tuya' });
+  }
+
+  let deleteQ = supabaseAdmin.from('rutas').delete().eq('id', rutaId);
+  if (existing.coordinador_id == null) {
+    deleteQ = deleteQ.is('coordinador_id', null);
+  } else {
+    deleteQ = deleteQ.eq('coordinador_id', coordId);
+  }
+
+  const { data, error } = await deleteQ.select('id');
 
   if (error) {
     return res.status(400).json({
