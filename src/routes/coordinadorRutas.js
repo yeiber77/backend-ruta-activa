@@ -2,8 +2,8 @@ const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const { normalizeEstado } = require('../utils/rutaEstado');
 const { listarRutasHistorial } = require('../utils/rutaHistorial');
-const { parseAdicional } = require('../utils/rutaAdicional');
-const { prepararPayloadRuta } = require('../utils/rutaAdicionalSchema');
+const { parseAdicional, listarRutasAdicionales } = require('../utils/rutaAdicional');
+const { aplicarFiltroAdicional, prepararPayloadRuta, tieneColumnaAdicional } = require('../utils/rutaAdicionalSchema');
 const {
   aplicarFiltroVisibleLista,
   prepararPayloadRutaVisible,
@@ -168,8 +168,11 @@ router.get('/', async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 200, 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const colVisible = await tieneColumnaVisibleLista();
+  const columnaAdicional = await tieneColumnaAdicional();
 
-  let q = rutasCoordinadorQuery(coordId, colVisible).order('id', { ascending: false });
+  let q = rutasCoordinadorQuery(coordId, colVisible);
+  q = aplicarFiltroAdicional(q, false, columnaAdicional);
+  q = q.order('id', { ascending: false });
 
   if (req.query.estado != null && String(req.query.estado).trim() !== '') {
     q = q.eq('estado', normalizeEstado(req.query.estado));
@@ -197,7 +200,19 @@ router.get('/historial', async (req, res) => {
   const coordId = coordinadorId(req);
   const limit = req.query.limit;
   const colVisible = await tieneColumnaVisibleLista();
-  const result = await listarRutasHistorial(rutasCoordinadorQuery(coordId, colVisible), limit);
+  const columnaAdicional = await tieneColumnaAdicional();
+  let q = rutasCoordinadorQuery(coordId, colVisible);
+  q = aplicarFiltroAdicional(q, false, columnaAdicional);
+  const result = await listarRutasHistorial(q, limit);
+  return res.status(result.status).json(result.body);
+});
+
+router.get('/adicionales', async (req, res) => {
+  const coordId = coordinadorId(req);
+  const limit = req.query.limit;
+  const colVisible = await tieneColumnaVisibleLista();
+  let qAd = rutasCoordinadorQuery(coordId, colVisible);
+  const result = await listarRutasAdicionales(qAd, limit);
   return res.status(result.status).json(result.body);
 });
 
