@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const requireUserBearer = require('../middleware/requireUserBearer');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -232,6 +233,15 @@ router.post('/denuncias', async (req, res) => {
   }
 
   const [denuncia] = await enrichDenuncias([data]);
+  void registrarEvento({
+    req,
+    eventType: 'denuncia.created',
+    entityType: 'denuncias',
+    entityId: denuncia?.id,
+    accion: 'create',
+    resumen: `${denuncia.autor_nombre || 'Usuario'} registró denuncia: ${motivo}`,
+    despues: denuncia,
+  });
   return res.status(201).json({ ok: true, mensaje: 'Denuncia registrada', denuncia });
 });
 
@@ -296,6 +306,15 @@ router.post('/comentarios', async (req, res) => {
   }
 
   const [comentario] = await enrichComentarios([data]);
+  void registrarEvento({
+    req,
+    eventType: 'comentario.created',
+    entityType: 'comentarios',
+    entityId: comentario?.id,
+    accion: 'create',
+    resumen: `${comentario.autor_nombre || 'Usuario'} publicó un comentario`,
+    despues: { id: comentario.id, texto: texto.slice(0, 120) },
+  });
   return res.status(201).json({ ok: true, mensaje: 'Comentario registrado', comentario });
 });
 
@@ -369,6 +388,15 @@ router.patch('/comentarios/:comentarioId/responder', async (req, res) => {
   }
 
   const [comentario] = await enrichComentarios([data]);
+  void registrarEvento({
+    req,
+    eventType: 'comentario.responded',
+    entityType: 'comentarios',
+    entityId: comentarioId,
+    accion: 'update',
+    resumen: `${user.nombre || user.email || 'Staff'} respondió comentario #${comentarioId}`,
+    despues: { respuesta: respuesta.slice(0, 200) },
+  });
   return res.status(200).json({ ok: true, mensaje: 'Respuesta guardada', comentario });
 });
 
@@ -421,6 +449,14 @@ router.delete('/comentarios/:comentarioId', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'comentario.deleted',
+    entityType: 'comentarios',
+    entityId: comentarioId,
+    accion: 'delete',
+    resumen: `${user.nombre || user.email || 'Usuario'} eliminó su comentario #${comentarioId}`,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Comentario eliminado',

@@ -1,4 +1,5 @@
 const express = require('express');
+const { registrarEvento } = require('../utils/auditLog');
 const { supabaseAdmin } = require('../config/supabase');
 const { listarRutasHistorial } = require('../utils/rutaHistorial');
 const { listarRutasAdicionales } = require('../utils/rutaAdicional');
@@ -192,6 +193,15 @@ router.patch('/:rutaId', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: Object.prototype.hasOwnProperty.call(patch, 'estado') ? 'ruta.estado_changed' : 'ruta.updated',
+    entityType: 'rutas',
+    entityId: rutaId,
+    accion: 'update',
+    resumen: `Admin actualizó ruta #${rutaId} (${data.comunidad_nombre})`,
+    despues: data,
+  });
   return res.status(200).json({ ok: true, mensaje: 'Ruta actualizada', ruta: data });
 });
 
@@ -215,6 +225,14 @@ router.delete('/:rutaId', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'ruta.deleted',
+    entityType: 'rutas',
+    entityId: rutaId,
+    accion: 'delete',
+    resumen: `Admin eliminó ruta #${rutaId}`,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Ruta eliminada',

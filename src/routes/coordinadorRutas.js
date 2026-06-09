@@ -9,6 +9,7 @@ const {
   prepararPayloadRutaVisible,
   tieneColumnaVisibleLista,
 } = require('../utils/rutaVisibleListaSchema');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -286,6 +287,16 @@ router.post('/', async (req, res) => {
         });
       }
 
+      void registrarEvento({
+        req,
+        eventType: 'ruta.created',
+        entityType: 'rutas',
+        entityId: actualizada?.id,
+        accion: 'update',
+        resumen: `Coordinador activó ruta «${nombre}» (#${actualizada?.id}) en la lista`,
+        antes: { id: oculta.id, visible_lista: false },
+        despues: actualizada,
+      });
       return res.status(201).json({
         ok: true,
         mensaje: 'Ruta agregada a la lista',
@@ -308,6 +319,15 @@ router.post('/', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'ruta.created',
+    entityType: 'rutas',
+    entityId: data?.id,
+    accion: 'create',
+    resumen: `Coordinador creó ruta «${nombre}» (#${data?.id})`,
+    despues: data,
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Ruta creada',
@@ -450,6 +470,19 @@ router.patch('/:rutaId', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada o no es tuya' });
   }
 
+  const evt = Object.prototype.hasOwnProperty.call(patch, 'estado')
+    ? 'ruta.estado_changed'
+    : 'ruta.updated';
+  void registrarEvento({
+    req,
+    eventType: evt,
+    entityType: 'rutas',
+    entityId: rutaId,
+    accion: 'update',
+    resumen: `Coordinador actualizó ruta #${rutaId} (${existing.comunidad_nombre})`,
+    antes: existing,
+    despues: data,
+  });
   return res.status(200).json({ ok: true, mensaje: 'Ruta actualizada', ruta: data });
 });
 
@@ -493,6 +526,15 @@ router.delete('/:rutaId', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada o no es tuya' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'ruta.deleted',
+    entityType: 'rutas',
+    entityId: rutaId,
+    accion: 'delete',
+    resumen: `Coordinador eliminó ruta «${existing.comunidad_nombre}» (#${rutaId})`,
+    antes: existing,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Ruta eliminada',

@@ -2,6 +2,7 @@ const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const requireUserBearer = require('../middleware/requireUserBearer');
 const { generarTextoGemini, buildSystemPrompt, geminiConfigured } = require('../utils/gemini');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -152,6 +153,15 @@ router.post('/retroalimentacion', async (req, res) => {
   }
 
   const [item] = await enrichCoordinadores([data]);
+  void registrarEvento({
+    req,
+    eventType: 'ia.feedback_created',
+    entityType: 'ia_retroalimentacion',
+    entityId: item?.id,
+    accion: 'create',
+    resumen: `Coordinador agregó retroalimentación IA${titulo ? `: ${titulo}` : ''}`,
+    despues: { id: item?.id, titulo: item?.titulo },
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Retroalimentación guardada. La IA usará esta guía en futuras consultas.',
@@ -208,6 +218,15 @@ router.patch('/retroalimentacion/:id', async (req, res) => {
   }
 
   const [item] = await enrichCoordinadores([data]);
+  void registrarEvento({
+    req,
+    eventType: 'ia.feedback_updated',
+    entityType: 'ia_retroalimentacion',
+    entityId: id,
+    accion: 'update',
+    resumen: `Coordinador editó retroalimentación IA #${id}`,
+    despues: patch,
+  });
   return res.status(200).json({ ok: true, retroalimentacion: item });
 });
 
@@ -297,6 +316,15 @@ router.post('/consultas', async (req, res) => {
   }
 
   const [consulta] = await enrichUsuarios([data]);
+  void registrarEvento({
+    req,
+    eventType: 'ia.consulta_created',
+    entityType: 'ia_consultas',
+    entityId: consulta?.id,
+    accion: 'create',
+    resumen: `${consulta.autor_nombre || 'Usuario'} consultó al asistente IA`,
+    despues: { pregunta: pregunta.slice(0, 150) },
+  });
   return res.status(201).json({ ok: true, consulta });
 });
 

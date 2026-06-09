@@ -7,6 +7,7 @@ const {
   rowToHorario,
   parseZonasInput,
 } = require('../utils/horariosRutasDefault');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -181,6 +182,15 @@ router.patch('/:diaId', async (req, res) => {
       return res.status(404).json({ ok: false, mensaje: 'Día no encontrado' });
     }
 
+    void registrarEvento({
+      req,
+      eventType: 'horario.updated',
+      entityType: 'horarios_rutas_dia',
+      entityId: diaId,
+      accion: 'update',
+      resumen: `Coordinador actualizó horario del ${data.dia_label || diaId}`,
+      despues: rowToHorario(data),
+    });
     return res.status(200).json({
       ok: true,
       mensaje: 'Horario actualizado',

@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const requireUserBearer = require('../middleware/requireUserBearer');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -164,6 +165,15 @@ router.post('/', async (req, res) => {
   }
 
   const [anuncio] = await enrichAnuncios([data]);
+  void registrarEvento({
+    req,
+    eventType: 'anuncio.published',
+    entityType: 'anuncios',
+    entityId: anuncio?.id,
+    accion: 'create',
+    resumen: `Coordinador publicó anuncio «${titulo}» (${tipo})`,
+    despues: anuncio,
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Anuncio publicado',
@@ -212,6 +222,14 @@ router.delete('/:id', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Anuncio no encontrado' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'anuncio.retired',
+    entityType: 'anuncios',
+    entityId: id,
+    accion: 'soft_delete',
+    resumen: `Coordinador retiró anuncio #${id}`,
+  });
   return res.status(200).json({ ok: true, mensaje: 'Anuncio retirado' });
 });
 

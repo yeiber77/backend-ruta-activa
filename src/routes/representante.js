@@ -1,4 +1,5 @@
 const express = require('express');
+const { registrarEvento } = require('../utils/auditLog');
 const { supabaseAdmin } = require('../config/supabase');
 const requireRepresentanteBearer = require('../middleware/requireRepresentanteBearer');
 const { listarRutasAdicionales } = require('../utils/rutaAdicional');
@@ -377,6 +378,15 @@ router.post('/rutas/:rutaId/confirmacion', async (req, res) => {
     verificacion = created;
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'verificacion.representante_confirmed',
+    entityType: 'verificaciones',
+    entityId: verificacion?.id,
+    accion: 'update',
+    resumen: `Representante confirmó ruta #${rutaId}`,
+    despues: verificacion,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Confirmacion de representante registrada',

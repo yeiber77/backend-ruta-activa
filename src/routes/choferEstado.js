@@ -5,6 +5,7 @@ const {
   crearBroadcastChoferFinalizado,
   listarNotificacionesChofer,
 } = require('../utils/estadoBroadcast');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -53,6 +54,14 @@ router.post('/notificaciones/:broadcastId/confirmar', async (req, res) => {
     if (!result.ok) {
       return res.status(result.status).json({ ok: false, mensaje: result.mensaje });
     }
+    void registrarEvento({
+      req,
+      eventType: 'estado.broadcast_confirmed',
+      entityType: 'estado_broadcasts',
+      entityId: broadcastId,
+      accion: 'update',
+      resumen: `Chofer confirmó aviso de estado #${broadcastId}`,
+    });
     return res.status(200).json(result);
   } catch (err) {
     return res.status(400).json({
@@ -66,6 +75,15 @@ router.post('/notificaciones/:broadcastId/confirmar', async (req, res) => {
 router.post('/finalizado', async (req, res) => {
   try {
     const broadcast = await crearBroadcastChoferFinalizado(req.choferActor);
+    void registrarEvento({
+      req,
+      eventType: 'estado.chofer_finalizado',
+      entityType: 'estado_broadcasts',
+      entityId: broadcast?.id,
+      accion: 'create',
+      resumen: `Chofer marcó servicio como finalizado`,
+      despues: broadcast,
+    });
     return res.status(201).json({
       ok: true,
       mensaje: 'Finalizado registrado',

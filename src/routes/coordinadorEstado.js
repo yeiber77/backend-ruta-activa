@@ -4,6 +4,7 @@ const {
   listarBroadcastsRecientes,
   crearBroadcastCoordinador,
 } = require('../utils/estadoBroadcast');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -35,6 +36,15 @@ router.post('/broadcast', async (req, res) => {
       req.coordinadorActor,
       String(estado).trim().toLowerCase()
     );
+    void registrarEvento({
+      req,
+      eventType: 'estado.broadcast_created',
+      entityType: 'estado_broadcasts',
+      entityId: broadcast?.id,
+      accion: 'create',
+      resumen: `Coordinador envió aviso de estado «${estado}» a choferes`,
+      despues: broadcast,
+    });
     return res.status(201).json({
       ok: true,
       mensaje: 'Estado enviado a choferes y administración',

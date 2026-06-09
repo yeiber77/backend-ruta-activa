@@ -1,4 +1,5 @@
 const express = require('express');
+const { registrarEvento } = require('../utils/auditLog');
 const { supabaseAdmin } = require('../config/supabase');
 
 const router = express.Router();
@@ -119,6 +120,15 @@ router.post('/', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'admin.user_created',
+    entityType: 'usuarios',
+    entityId: userId,
+    accion: 'create',
+    resumen: `Admin creó usuario «${nombre}» (${email})`,
+    despues: profilePayload,
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Usuario creado en Auth y en public.usuarios',
@@ -191,6 +201,15 @@ router.patch('/:userId', async (req, res) => {
       });
     }
 
+    void registrarEvento({
+      req,
+      eventType: 'admin.user_updated',
+      entityType: 'usuarios',
+      entityId: userId,
+      accion: 'update',
+      resumen: `Admin actualizó usuario «${updatedRows[0].nombre || updatedRows[0].email}»`,
+      despues: updatedRows[0],
+    });
     return res.status(200).json({
       ok: true,
       mensaje: 'Usuario actualizado',
@@ -198,6 +217,15 @@ router.patch('/:userId', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'admin.user_updated',
+    entityType: 'usuarios',
+    entityId: userId,
+    accion: 'update',
+    resumen: `Admin actualizó credenciales de usuario ${userId}`,
+    metadata: { auth_only: true },
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Credenciales actualizadas en Auth',

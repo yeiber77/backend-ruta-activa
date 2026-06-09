@@ -1,4 +1,5 @@
 const express = require('express');
+const { registrarEvento } = require('../utils/auditLog');
 const { supabaseAdmin } = require('../config/supabase');
 
 const router = express.Router();
@@ -84,6 +85,14 @@ router.delete('/:verificacionId', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Verificacion no encontrada' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'verificacion.deleted',
+    entityType: 'verificaciones',
+    entityId: id,
+    accion: 'delete',
+    resumen: `Admin eliminó verificación #${id}`,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Verificacion eliminada',
@@ -145,6 +154,15 @@ router.patch('/:verificacionId/representante', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Verificacion no encontrada' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'verificacion.updated',
+    entityType: 'verificaciones',
+    entityId: id,
+    accion: 'update',
+    resumen: `Admin actualizó confirmación de representante en verificación #${id}`,
+    despues: patch,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Confirmacion de representante actualizada',
@@ -184,6 +202,14 @@ router.delete('/:verificacionId/representante', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Verificacion no encontrada' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'verificacion.representante_cleared',
+    entityType: 'verificaciones',
+    entityId: id,
+    accion: 'update',
+    resumen: `Admin limpió confirmación de representante en verificación #${id}`,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Confirmacion de representante eliminada',

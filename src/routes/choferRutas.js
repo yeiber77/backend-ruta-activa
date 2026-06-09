@@ -14,6 +14,7 @@ const {
   aplicarFiltroVisibleListaEnQuery,
   tieneColumnaVisibleLista,
 } = require('../utils/rutaVisibleListaSchema');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -219,6 +220,15 @@ router.patch('/:rutaId', async (req, res) => {
     return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada o no te esta asignada' });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'ruta.estado_changed',
+    entityType: 'rutas',
+    entityId: rutaId,
+    accion: 'update',
+    resumen: `Chofer cambió estado de ruta #${rutaId} a «${nuevo}»`,
+    despues: { id: rutaId, estado: nuevo, comunidad: data.comunidad_nombre },
+  });
   return res.status(200).json({ ok: true, mensaje: 'Estado actualizado', ruta: data });
 });
 

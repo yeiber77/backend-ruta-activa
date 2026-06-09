@@ -1,4 +1,5 @@
 const express = require('express');
+const { registrarEvento } = require('../utils/auditLog');
 const { supabaseAdmin } = require('../config/supabase');
 const { normalizeEstado } = require('../utils/rutaEstado');
 
@@ -239,6 +240,15 @@ router.post('/', async (req, res) => {
 
   const { data: rutaActualizada } = await supabaseAdmin.from('rutas').select('*').eq('id', rutaId).maybeSingle();
 
+  void registrarEvento({
+    req,
+    eventType: 'verificacion.created',
+    entityType: 'verificaciones',
+    entityId: created?.id,
+    accion: 'create',
+    resumen: `Supervisor creó verificación para ruta #${rutaId}${confirmado ? ' (confirmada)' : ''}`,
+    despues: created,
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Verificacion creada',
@@ -388,6 +398,16 @@ router.patch('/:verificacionId', async (req, res) => {
 
   const { data: rutaFin } = await supabaseAdmin.from('rutas').select('*').eq('id', row.ruta_id).maybeSingle();
 
+  void registrarEvento({
+    req,
+    eventType: 'verificacion.updated',
+    entityType: 'verificaciones',
+    entityId: id,
+    accion: 'update',
+    resumen: `Supervisor actualizó verificación #${id} (ruta #${row.ruta_id})`,
+    antes: row,
+    despues: updated,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Verificacion actualizada',

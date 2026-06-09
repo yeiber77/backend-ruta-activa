@@ -6,6 +6,7 @@ const {
 } = require('../config/supabase');
 const { isValidAdmin } = require('../middleware/adminAuth');
 const { extractBearerToken } = require('../utils/bearerToken');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 const adminRoleId = Number(process.env.ROLE_ADMIN_ID || process.env.ROL_ADMIN_ID || 1);
@@ -81,6 +82,15 @@ router.post('/register', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    actor: profilePayload,
+    eventType: 'auth.register',
+    entityType: 'usuarios',
+    entityId: user.id,
+    accion: 'create',
+    resumen: `Nuevo registro: ${nombre} (${email})`,
+    despues: profilePayload,
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Usuario registrado correctamente',
@@ -142,6 +152,14 @@ router.post('/login', async (req, res) => {
     }
   }
 
+  void registrarEvento({
+    actor: perfil || { id: authUser.id, email: authUser.email, nombre: null, rol_id: null },
+    eventType: 'auth.login',
+    entityType: 'usuarios',
+    entityId: authUser.id,
+    accion: 'login',
+    resumen: `Inicio de sesión: ${perfil?.nombre || authUser.email}`,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: perfilVinculado
@@ -563,6 +581,16 @@ router.delete('/users/:user_id', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    actor: actorProfile,
+    eventType: 'auth.user_deleted',
+    entityType: 'usuarios',
+    entityId: userId,
+    accion: 'delete',
+    resumen: `${actorProfile?.id === userId ? 'Usuario' : 'Admin/coordinador'} eliminó cuenta «${deletedRows[0].nombre || deletedRows[0].email}»`,
+    antes: deletedRows[0],
+    metadata: { actor_rol_id: actorRol },
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Usuario eliminado de public.usuarios',

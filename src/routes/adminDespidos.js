@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
 const { crearTrabajadorEquipo, choferRoleId, obreroRoleId } = require('../utils/crearTrabajadorEquipo');
+const { registrarEvento } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -115,6 +116,15 @@ router.post('/trabajadores', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'admin.worker_created',
+    entityType: 'usuarios',
+    entityId: result.perfil?.id,
+    accion: 'create',
+    resumen: `Admin agregó ${tipo || 'trabajador'} «${result.perfil?.nombre || result.perfil?.email}» al equipo`,
+    despues: result.perfil,
+  });
   return res.status(201).json({
     ok: true,
     mensaje: 'Trabajador agregado al equipo',
@@ -198,6 +208,16 @@ router.post('/registro/:despidoId/reintegrar', async (req, res) => {
     });
   }
 
+  void registrarEvento({
+    req,
+    eventType: 'admin.worker_reintegrated',
+    entityType: 'usuarios',
+    entityId: result.perfil?.id,
+    accion: 'create',
+    resumen: `Admin reintegró «${registro.nombre || registro.email}» al equipo`,
+    antes: registro,
+    despues: result.perfil,
+  });
   return res.status(200).json({
     ok: true,
     mensaje: 'Trabajador reintegrado al equipo',
@@ -314,7 +334,20 @@ router.post('/choferes/:userId', async (req, res) => {
   }
 
   const { error: authDeleteErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  const auditDespido = () =>
+    void registrarEvento({
+      req,
+      eventType: 'admin.worker_dismissed',
+      entityType: 'usuarios',
+      entityId: userId,
+      accion: 'delete',
+      resumen: `Admin despidió «${miembro.nombre || miembro.email}»${motivo ? ` — ${motivo}` : ''}`,
+      antes: miembro,
+      despues: despidoRegistro,
+    });
+
   if (authDeleteErr) {
+    auditDespido();
     return res.status(200).json({
       ok: true,
       mensaje:
@@ -324,6 +357,7 @@ router.post('/choferes/:userId', async (req, res) => {
     });
   }
 
+  auditDespido();
   return res.status(200).json({
     ok: true,
     mensaje: 'Miembro del equipo despedido correctamente',
