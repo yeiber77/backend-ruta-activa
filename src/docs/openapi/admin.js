@@ -109,5 +109,28 @@ module.exports = {
         "404": { "description": "Sin fila en usuarios" }
       }
     }
-  }
+  },
+  '/api/admin/asistencia': {
+    get: {
+      tags: ['Admin'],
+      summary: 'Lista trabajadores y registros de asistencia por fecha (solo lectura)',
+      description:
+        'GET /api/admin/asistencia?fecha=YYYY-MM-DD. Misma respuesta que coordinador GET; sin escritura en v1.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'fecha',
+          in: 'query',
+          required: true,
+          schema: { type: 'string', format: 'date', example: '2026-06-14' },
+        },
+      ],
+      responses: {
+        200: { description: 'Trabajadores y registros del día' },
+        400: { description: 'fecha inválida o error de consulta' },
+        401: { description: 'Sin token o token inválido' },
+        403: { description: 'No es administrador' },
+      },
+    },
+  },
 };

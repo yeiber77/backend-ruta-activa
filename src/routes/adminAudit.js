@@ -116,6 +116,8 @@ router.get('/tipos', (_req, res) => {
       { id: 'anuncio.published', label: 'Anuncio publicado' },
       { id: 'anuncio.retired', label: 'Anuncio retirado' },
       { id: 'horario.updated', label: 'Horario actualizado' },
+      { id: 'asistencia.created', label: 'Asistencia registrada' },
+      { id: 'asistencia.updated', label: 'Asistencia actualizada' },
       { id: 'ia.feedback_created', label: 'Retroalimentación IA' },
       { id: 'ia.feedback_updated', label: 'Retroalimentación IA editada' },
       { id: 'ia.consulta_created', label: 'Consulta IA' },

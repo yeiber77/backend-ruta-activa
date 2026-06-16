@@ -7,6 +7,7 @@ const rutasOpenapiPaths = require('./rutas');
 const verificacionesOpenapiPaths = require('./verificaciones');
 const coordinadorOpenapiPaths = require('./coordinador');
 const representanteOpenapiPaths = require('./representante');
+const asistenciaOpenapiPaths = require('./asistencia');
 
 module.exports = {
   ...base,
@@ -19,5 +20,6 @@ module.exports = {
     ...verificacionesOpenapiPaths,
     ...coordinadorOpenapiPaths,
     ...representanteOpenapiPaths,
+    ...asistenciaOpenapiPaths,
   },
 };

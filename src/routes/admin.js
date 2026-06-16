@@ -6,6 +6,7 @@ const verificacionesRoutes = require('./verificaciones');
 const adminEstadoRoutes = require('./adminEstado');
 const adminDespidosRoutes = require('./adminDespidos');
 const adminAuditRoutes = require('./adminAudit');
+const adminAsistenciaRoutes = require('./adminAsistencia');
 
 const router = express.Router();
 
@@ -16,5 +17,6 @@ router.use('/verificaciones', verificacionesRoutes);
 router.use('/estado', adminEstadoRoutes);
 router.use('/despidos', adminDespidosRoutes);
 router.use('/audit-log', adminAuditRoutes);
+router.use('/asistencia', adminAsistenciaRoutes);
 
 module.exports = router;
