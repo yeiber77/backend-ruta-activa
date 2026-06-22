@@ -9,6 +9,7 @@ const representanteRoutes = require('./representante');
 const denunciasComentariosRoutes = require('./denunciasComentarios');
 const asistenteIaRoutes = require('./asistenteIa');
 const horariosRutasRoutes = require('./horariosRutas');
+const publicHorariosRutasRoutes = require('./publicHorariosRutas');
 const anunciosRoutes = require('./anuncios');
 
 function registerRoutes(app) {
@@ -22,6 +23,7 @@ function registerRoutes(app) {
   app.use('/api/representante', representanteRoutes);
   app.use('/api/denuncias-comentarios', denunciasComentariosRoutes);
   app.use('/api/asistente-ia', asistenteIaRoutes);
+  app.use('/api/public/horarios-rutas', publicHorariosRutasRoutes);
   app.use('/api/horarios-rutas', horariosRutasRoutes);
   app.use('/api/anuncios', anunciosRoutes);
 }

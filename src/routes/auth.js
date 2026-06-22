@@ -334,10 +334,9 @@ router.post('/recuperar-contrasena-codigo', async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: 'email es obligatorio' });
   }
 
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false },
-  });
+  const redirectTo = passwordResetRedirectUrl();
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
 
   if (error) {
     const r = respuestaErrorEnvioCorreoAuth(error, 'No se pudo enviar el código');
@@ -376,7 +375,7 @@ router.post('/nueva-contrasena-codigo', async (req, res) => {
   const { data, error } = await supabase.auth.verifyOtp({
     email,
     token: codigo,
-    type: 'email',
+    type: 'recovery',
   });
 
   if (error || !data?.session) {
