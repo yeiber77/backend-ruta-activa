@@ -13,16 +13,25 @@ const { normalizeEstado } = require('../utils/rutaEstado');
 
 const router = express.Router();
 
-function representanteId(req) {
-  return req.representanteActor.id;
-}
-
 function parseRutaId(param) {
   const n = Number(param);
   if (!Number.isInteger(n) || n < 1) {
     return null;
   }
   return n;
+}
+
+function representanteId(req) {
+  return req.representanteActor.id;
+}
+
+async function fetchRutaById(rutaId) {
+  const { data, error } = await supabaseAdmin
+    .from('rutas')
+    .select('*')
+    .eq('id', rutaId)
+    .maybeSingle();
+  return { ruta: data, error };
 }
 
 async function fetchRutaIfAssigned(rutaId, repId) {
@@ -62,11 +71,9 @@ function pickLatestByRuta(verificaciones) {
 router.use(requireRepresentanteBearer);
 
 router.get('/reportes', async (req, res) => {
-  const repId = representanteId(req);
   const { data: rutas, error: rutasError } = await supabaseAdmin
     .from('rutas')
     .select('id, comunidad_nombre, estado, representante_id')
-    .eq('representante_id', repId)
     .order('id', { ascending: false });
 
   if (rutasError) {
@@ -134,7 +141,6 @@ router.get('/reportes', async (req, res) => {
 });
 
 router.get('/rutas', async (req, res) => {
-  const repId = representanteId(req);
   const limit = Math.min(Number(req.query.limit) || 200, 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const columnaExiste = await tieneColumnaAdicional();
@@ -142,8 +148,7 @@ router.get('/rutas', async (req, res) => {
 
   let rutasQuery = supabaseAdmin
     .from('rutas')
-    .select('*')
-    .eq('representante_id', repId);
+    .select('*');
   rutasQuery = aplicarFiltroAdicional(rutasQuery, false, columnaExiste);
   rutasQuery = aplicarFiltroVisibleListaEnQuery(rutasQuery, colVisible);
   rutasQuery = rutasQuery.order('id', { ascending: false });
@@ -187,11 +192,10 @@ router.get('/rutas', async (req, res) => {
 });
 
 router.get('/rutas/historial', async (req, res) => {
-  const repId = representanteId(req);
   const limit = req.query.limit;
   const columnaExiste = await tieneColumnaAdicional();
   const colVisible = await tieneColumnaVisibleLista();
-  let q = supabaseAdmin.from('rutas').select('*').eq('representante_id', repId);
+  let q = supabaseAdmin.from('rutas').select('*');
   q = aplicarFiltroAdicional(q, false, columnaExiste);
   q = aplicarFiltroVisibleListaEnQuery(q, colVisible);
   const result = await listarRutasHistorial(q, limit);
@@ -224,10 +228,9 @@ router.get('/rutas/historial', async (req, res) => {
 });
 
 router.get('/rutas/adicionales', async (req, res) => {
-  const repId = representanteId(req);
   const limit = req.query.limit;
   const colVisible = await tieneColumnaVisibleLista();
-  let qAd = supabaseAdmin.from('rutas').select('*').eq('representante_id', repId);
+  let qAd = supabaseAdmin.from('rutas').select('*');
   qAd = aplicarFiltroVisibleListaEnQuery(qAd, colVisible);
   const result = await listarRutasAdicionales(qAd, limit);
   if (!result.ok) {
@@ -279,8 +282,7 @@ router.post('/rutas/:rutaId/confirmacion', async (req, res) => {
   const comentarioRepresentante =
     req.body.comentario_representante === undefined ? null : req.body.comentario_representante;
 
-  const repId = representanteId(req);
-  const { ruta, error: rutaError } = await fetchRutaIfAssigned(rutaId, repId);
+  const { ruta, error: rutaError } = await fetchRutaById(rutaId);
   if (rutaError) {
     return res.status(400).json({
       ok: false,
@@ -290,7 +292,7 @@ router.post('/rutas/:rutaId/confirmacion', async (req, res) => {
   }
 
   if (!ruta) {
-    return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada o no te esta asignada' });
+    return res.status(404).json({ ok: false, mensaje: 'Ruta no encontrada' });
   }
 
   const { data: existente, error: existenteErr } = await supabaseAdmin
